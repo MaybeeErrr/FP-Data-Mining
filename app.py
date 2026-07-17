@@ -502,6 +502,63 @@ with col2:
         query = contoh_query
         run_clicked = True
 
+st.markdown(
+    '<div style="margin:-6px 0 4px 0;color:#5B6580;font-size:11.5px;'
+    'font-family:\'IBM Plex Mono\',monospace;">'
+    'Enter untuk jalankan &middot; Shift+Enter untuk baris baru</div>',
+    unsafe_allow_html=True,
+)
+
+# Enter = jalankan, Shift+Enter = baris baru (perilaku ala chat LLM).
+# st.text_area bawaan Streamlit tidak punya opsi ini, jadi disuntik lewat JS
+# yang menyadap textarea di parent document dan mengklik tombol "Jalankan".
+components.html(
+    """
+    <script>
+    (function () {
+        function bind() {
+            var doc = window.parent.document;
+            var textareas = doc.querySelectorAll('textarea');
+            var target = null;
+            for (var i = 0; i < textareas.length; i++) {
+                var ta = textareas[i];
+                var label = (ta.getAttribute('aria-label') || '');
+                if (label.indexOf('Masukkan permintaan') !== -1) { target = ta; break; }
+            }
+            if (!target) { return false; }
+            if (target.dataset.enterRunBound === "1") { return true; }
+            target.dataset.enterRunBound = "1";
+
+            target.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && e.keyCode !== 229) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    target.blur();
+                    setTimeout(function () {
+                        var buttons = doc.querySelectorAll('button');
+                        for (var j = 0; j < buttons.length; j++) {
+                            var txt = (buttons[j].innerText || '').trim();
+                            if (txt.indexOf('Jalankan') !== -1) {
+                                buttons[j].click();
+                                break;
+                            }
+                        }
+                    }, 80);
+                }
+            });
+            return true;
+        }
+        var attempts = 0;
+        var timer = setInterval(function () {
+            attempts++;
+            if (bind() || attempts > 40) { clearInterval(timer); }
+        }, 250);
+    })();
+    </script>
+    """,
+    height=0,
+)
+
 if run_clicked:
     if not query.strip():
         st.warning("Tulis permintaan terlebih dahulu.")

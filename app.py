@@ -21,7 +21,17 @@ import time
 import streamlit as st
 import streamlit.components.v1 as components
 
-from agent_core import AVAILABLE_AGENTS, DIVISI_LABEL, MultiAgentSystem
+from agent_core import AVAILABLE_AGENTS, DIVISI_LABEL, MODEL_NAME, MultiAgentSystem
+
+# Model yang tersedia di Groq (per Juli 2026) yang jadi pengganti resmi model lama:
+# - openai/gpt-oss-20b  -> pengganti llama-3.1-8b-instant (CEPAT, limit free-tier longgar)
+# - openai/gpt-oss-120b -> pengganti llama-3.3-70b-versatile (lebih pintar, tapi jauh lebih lambat
+#   & lebih gampang kena rate limit di free-tier -- ini penyebab loading lama kalau dipakai untuk
+#   semua panggilan LLM di sistem multi-agent ini, karena satu query bisa memicu belasan panggilan)
+MODEL_OPTIONS = {
+    "openai/gpt-oss-20b": "⚡ Cepat (openai/gpt-oss-20b)",
+    "openai/gpt-oss-120b": "🐢 Lebih pintar, lebih lambat (openai/gpt-oss-120b)",
+}
 
 st.set_page_config(
     page_title="Control Tower — PT Retailindo Nusantara",

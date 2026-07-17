@@ -164,6 +164,10 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
 ::-webkit-scrollbar{ width:8px; height:8px; }
 ::-webkit-scrollbar-thumb{ background:#2A3350; border-radius:8px; }
 
+/* Sembunyikan hint bawaan Streamlit "Press Enter to apply" / "Press Ctrl+Enter to apply"
+   yang muncul di pojok kanan-bawah text_area saat ada perubahan yang belum di-submit. */
+[data-testid="InputInstructions"]{ display:none !important; }
+
 /* ---- custom components ---- */
 .eyebrow{
   font-family:'IBM Plex Mono', monospace;
@@ -580,13 +584,29 @@ if run_clicked:
     components.html(
         """
         <script>
-        setTimeout(function () {
+        (function () {
             var doc = window.parent.document;
-            var el = doc.getElementById('hasil-section');
-            if (el) {
-                el.scrollIntoView({behavior: 'smooth', block: 'start'});
+            var attempts = 0;
+            var maxAttempts = 30; // ~3 detik total, cukup untuk render selesai
+
+            function tryScroll() {
+                attempts++;
+                var el = doc.getElementById('hasil-section');
+                if (el) {
+                    el.scrollIntoView({behavior: 'smooth', block: 'start'});
+                    // Ulangi sekali lagi setelah konten (tabs, dsb.) selesai render,
+                    // supaya posisi scroll tetap akurat walau tinggi halaman berubah.
+                    setTimeout(function () {
+                        el.scrollIntoView({behavior: 'smooth', block: 'start'});
+                    }, 400);
+                    return;
+                }
+                if (attempts < maxAttempts) {
+                    setTimeout(tryScroll, 100);
+                }
             }
-        }, 150);
+            tryScroll();
+        })();
         </script>
         """,
         height=0,

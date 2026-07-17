@@ -193,31 +193,62 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
   margin-bottom:18px;
 }
 
+.pipeline-label{
+  font-family:'IBM Plex Mono', monospace;
+  font-size:11px;
+  letter-spacing:1.5px;
+  text-transform:uppercase;
+  color:var(--muted);
+  margin:20px 0 10px 0;
+}
 .pipeline{
   display:flex;
   align-items:center;
   flex-wrap:wrap;
-  gap:0;
-  margin:18px 0 26px 0;
+  gap:9px;
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:14px 16px;
+  margin:0 0 26px 0;
 }
 .node{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
   font-family:'IBM Plex Mono', monospace;
   font-size:12.5px;
   font-weight:600;
-  padding:8px 14px;
+  padding:8px 15px 8px 11px;
   border-radius:999px;
   background:var(--panel-2);
   border:1px solid var(--border);
   color:var(--text);
   white-space:nowrap;
+  transition:border-color .15s ease, transform .15s ease, background .15s ease;
 }
-.node.core{ border-color:var(--amber); color:var(--amber); }
-.link{
-  width:22px; height:1px; background:var(--border); margin:0 6px;
-  position:relative;
+.node:hover{
+  transform:translateY(-1px);
+  border-color:rgba(255,255,255,0.28);
 }
-.link::after{
-  content:"›"; position:absolute; right:-9px; top:-10px; color:var(--muted); font-size:14px;
+.node .dot{
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  flex-shrink:0;
+  box-shadow:0 0 6px currentColor;
+}
+.node.core{
+  border-color:rgba(242,169,59,0.45);
+  background:rgba(242,169,59,0.08);
+  color:var(--amber);
+}
+.node.core .dot{ background:var(--amber); color:var(--amber); }
+.pipeline-sep{
+  color:var(--muted);
+  font-size:13px;
+  opacity:0.5;
+  padding:0 1px;
 }
 
 .section-label{
@@ -420,15 +451,19 @@ st.markdown(
 )
 
 pipeline_nodes = "".join(
-    f'<div class="node" style="border-color:{DIVISI_COLOR[a]}55;color:{DIVISI_COLOR[a]};">'
-    f'{DIVISI_ICON[a]} {DIVISI_LABEL[a]}</div><div class="link"></div>'
+    f'<div class="node">'
+    f'<span class="dot" style="background:{DIVISI_COLOR[a]};color:{DIVISI_COLOR[a]};"></span>'
+    f'{DIVISI_ICON[a]} {DIVISI_LABEL[a]}</div>'
     for a in AVAILABLE_AGENTS
 )
+st.markdown('<div class="pipeline-label">Alur Agent</div>', unsafe_allow_html=True)
 st.markdown(
     f'<div class="pipeline">'
-    f'<div class="node core">🧭 Orchestrator</div><div class="link"></div>'
+    f'<div class="node core"><span class="dot"></span>🧭 Orchestrator</div>'
+    f'<span class="pipeline-sep">→</span>'
     f'{pipeline_nodes}'
-    f'<div class="node core">🧾 Aggregator</div>'
+    f'<span class="pipeline-sep">→</span>'
+    f'<div class="node core"><span class="dot"></span>🧾 Aggregator</div>'
     f'</div>',
     unsafe_allow_html=True,
 )

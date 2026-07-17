@@ -79,7 +79,7 @@ html, body, [class*="css"]{
   font-family:'Inter', sans-serif;
 }
 h1,h2,h3,h4{
-  font-family:'Space Grotesk', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif !important;
+  font-family:'Space Grotesk', sans-serif !important;
 }
 code, .mono{
   font-family:'IBM Plex Mono', monospace !important;
@@ -87,9 +87,8 @@ code, .mono{
 
 .stApp{
   background:
-    radial-gradient(circle at 8% -4%, rgba(242,169,59,0.10), transparent 42%),
-    radial-gradient(circle at 92% 4%, rgba(96,165,250,0.09), transparent 38%),
-    radial-gradient(circle at 50% 100%, rgba(52,211,153,0.05), transparent 45%),
+    radial-gradient(circle at 10% 0%, rgba(242,169,59,0.06), transparent 40%),
+    radial-gradient(circle at 90% 10%, rgba(96,165,250,0.06), transparent 35%),
     var(--bg);
 }
 
@@ -120,7 +119,7 @@ section[data-testid="stSidebar"] .stMarkdown p{ color:var(--muted); }
   border:none;
   border-radius:10px;
   font-weight:600;
-  font-family:'Space Grotesk', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+  font-family:'Space Grotesk', sans-serif;
   letter-spacing:.2px;
   transition:transform .08s ease, box-shadow .15s ease;
 }
@@ -149,7 +148,7 @@ section[data-testid="stSidebar"] .stMarkdown p{ color:var(--muted); }
 .stTabs [data-baseweb="tab"]{
   background:transparent;
   color:var(--muted);
-  font-family:'Space Grotesk', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+  font-family:'Space Grotesk', sans-serif;
   font-weight:600;
   border-radius:8px 8px 0 0;
 }
@@ -165,41 +164,7 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
 ::-webkit-scrollbar{ width:8px; height:8px; }
 ::-webkit-scrollbar-thumb{ background:#2A3350; border-radius:8px; }
 
-/* Sembunyikan hint bawaan Streamlit "Press Enter to apply" / "Press Ctrl+Enter to apply"
-   yang muncul di pojok kanan-bawah text_area saat ada perubahan yang belum di-submit. */
-[data-testid="InputInstructions"]{ display:none !important; }
-
 /* ---- custom components ---- */
-@keyframes pulseDot{
-  0%, 100%{ opacity:1; transform:scale(1); }
-  50%{ opacity:.55; transform:scale(0.8); }
-}
-@keyframes floatGlow{
-  0%, 100%{ transform:translateY(0px); }
-  50%{ transform:translateY(-4px); }
-}
-
-.eyebrow-badge{
-  display:inline-flex;
-  align-items:center;
-  gap:7px;
-  font-family:'IBM Plex Mono', monospace;
-  font-size:11.5px;
-  letter-spacing:1.8px;
-  color:var(--amber);
-  text-transform:uppercase;
-  background:rgba(242,169,59,0.09);
-  border:1px solid rgba(242,169,59,0.30);
-  padding:6px 14px 6px 10px;
-  border-radius:999px;
-  margin-bottom:14px;
-}
-.eyebrow-badge .pip{
-  width:6px; height:6px; border-radius:50%;
-  background:var(--amber);
-  box-shadow:0 0 8px var(--amber);
-  animation:pulseDot 2s ease-in-out infinite;
-}
 .eyebrow{
   font-family:'IBM Plex Mono', monospace;
   font-size:12px;
@@ -214,55 +179,19 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
   opacity:.18;
   border-radius:4px;
 }
-
-.hero-card{
-  position:relative;
-  background:
-    linear-gradient(180deg, rgba(23,31,51,0.9), rgba(19,26,43,0.7));
-  border:1px solid var(--border);
-  border-radius:22px;
-  padding:34px 38px 30px 38px;
-  margin-bottom:28px;
-  overflow:hidden;
-}
-.hero-card::before{
-  content:"";
-  position:absolute;
-  top:-60%; right:-15%;
-  width:420px; height:420px;
-  background:radial-gradient(circle, rgba(242,169,59,0.16), transparent 65%);
-  pointer-events:none;
-  animation:floatGlow 6s ease-in-out infinite;
-}
-.hero-card::after{
-  content:"";
-  position:absolute;
-  bottom:-70%; left:-10%;
-  width:380px; height:380px;
-  background:radial-gradient(circle, rgba(96,165,250,0.12), transparent 65%);
-  pointer-events:none;
-}
 .hero-title{
-  position:relative;
-  font-size:40px;
+  font-size:38px;
   font-weight:700;
-  margin:0 0 12px 0;
-  line-height:1.18;
-  background:linear-gradient(90deg, #FFFFFF 0%, #EDEFF5 55%, #F2A93B 120%);
-  -webkit-background-clip:text;
-  background-clip:text;
-  -webkit-text-fill-color:transparent;
+  color:var(--text);
+  margin:6px 0 2px 0;
+  line-height:1.15;
 }
 .hero-sub{
-  position:relative;
   color:var(--muted);
-  font-size:15.5px;
-  max-width:720px;
-  line-height:1.7;
-  margin-bottom:0;
+  font-size:15px;
+  max-width:760px;
+  margin-bottom:18px;
 }
-.hero-sub b{ color:var(--text); font-weight:600; }
-.hero-sub .accent{ color:var(--amber); font-weight:600; }
 
 .pipeline-label{
   font-family:'IBM Plex Mono', monospace;
@@ -270,49 +199,37 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
   letter-spacing:1.5px;
   text-transform:uppercase;
   color:var(--muted);
-  margin:0 0 12px 0;
-  display:flex;
-  align-items:center;
-  gap:8px;
-}
-.pipeline-label::after{
-  content:"";
-  flex:1;
-  height:1px;
-  background:linear-gradient(90deg, var(--border), transparent);
+  margin:20px 0 10px 0;
 }
 .pipeline{
-  position:relative;
   display:flex;
   align-items:center;
   flex-wrap:wrap;
-  gap:10px;
-  background:linear-gradient(180deg, rgba(23,31,51,0.75), rgba(19,26,43,0.55));
+  gap:9px;
+  background:var(--panel);
   border:1px solid var(--border);
-  border-radius:18px;
-  padding:18px 20px;
-  margin:0 0 30px 0;
-  box-shadow:0 10px 30px -18px rgba(0,0,0,0.6);
+  border-radius:16px;
+  padding:14px 16px;
+  margin:0 0 26px 0;
 }
 .node{
   display:inline-flex;
   align-items:center;
   gap:8px;
-  font-family:'IBM Plex Mono', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', monospace;
+  font-family:'IBM Plex Mono', monospace;
   font-size:12.5px;
   font-weight:600;
-  padding:9px 16px 9px 12px;
+  padding:8px 15px 8px 11px;
   border-radius:999px;
   background:var(--panel-2);
   border:1px solid var(--border);
   color:var(--text);
   white-space:nowrap;
-  transition:border-color .15s ease, transform .15s ease, background .15s ease, box-shadow .15s ease;
+  transition:border-color .15s ease, transform .15s ease, background .15s ease;
 }
 .node:hover{
-  transform:translateY(-2px);
-  border-color:rgba(255,255,255,0.3);
-  box-shadow:0 8px 20px -10px rgba(0,0,0,0.5);
+  transform:translateY(-1px);
+  border-color:rgba(255,255,255,0.28);
 }
 .node .dot{
   width:7px;
@@ -322,16 +239,15 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
   box-shadow:0 0 6px currentColor;
 }
 .node.core{
-  border-color:rgba(242,169,59,0.5);
-  background:linear-gradient(135deg, rgba(242,169,59,0.14), rgba(242,169,59,0.05));
+  border-color:rgba(242,169,59,0.45);
+  background:rgba(242,169,59,0.08);
   color:var(--amber);
-  font-weight:700;
 }
-.node.core .dot{ background:var(--amber); color:var(--amber); animation:pulseDot 2s ease-in-out infinite; }
+.node.core .dot{ background:var(--amber); color:var(--amber); }
 .pipeline-sep{
   color:var(--muted);
-  font-size:15px;
-  opacity:0.45;
+  font-size:13px;
+  opacity:0.5;
   padding:0 1px;
 }
 
@@ -366,24 +282,18 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
 }
 
 .agent-card{
-  background:linear-gradient(180deg, rgba(23,31,51,0.6), rgba(19,26,43,0.4));
+  background:var(--panel);
   border:1px solid var(--border);
   border-left:4px solid var(--border);
   border-radius:12px;
   padding:16px 18px;
   margin-bottom:14px;
-  box-shadow:0 8px 24px -18px rgba(0,0,0,0.7);
-  transition:transform .15s ease, box-shadow .15s ease;
-}
-.agent-card:hover{
-  transform:translateY(-2px);
-  box-shadow:0 12px 28px -16px rgba(0,0,0,0.8);
 }
 .agent-card-head{
   display:flex; align-items:center; gap:10px; margin-bottom:8px;
 }
 .agent-card-title{
-  font-family:'Space Grotesk', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+  font-family:'Space Grotesk', sans-serif;
   font-weight:600;
   font-size:15.5px;
   color:var(--text);
@@ -418,28 +328,22 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
 }
 
 .final-card{
-  background:linear-gradient(180deg, rgba(242,169,59,0.11), rgba(242,169,59,0.02));
+  background:linear-gradient(180deg, rgba(242,169,59,0.09), rgba(242,169,59,0.02));
   border:1px solid rgba(242,169,59,0.35);
   border-radius:14px;
   padding:20px 22px;
   color:var(--text);
   font-size:15px;
   line-height:1.65;
-  box-shadow:0 14px 34px -20px rgba(242,169,59,0.35);
 }
 
 .metric-grid{ display:flex; flex-wrap:wrap; gap:12px; margin-bottom:6px; }
 .metric-card{
   flex:1; min-width:150px;
-  background:linear-gradient(180deg, rgba(23,31,51,0.7), rgba(19,26,43,0.5));
+  background:var(--panel-2);
   border:1px solid var(--border);
   border-radius:12px;
   padding:14px 16px;
-  transition:transform .15s ease, border-color .15s ease;
-}
-.metric-card:hover{
-  transform:translateY(-2px);
-  border-color:rgba(255,255,255,0.22);
 }
 .metric-label{
   font-family:'IBM Plex Mono', monospace;
@@ -447,7 +351,7 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
   color:var(--muted); margin-bottom:6px;
 }
 .metric-value{
-  font-family:'Space Grotesk', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+  font-family:'Space Grotesk', sans-serif;
   font-size:22px; font-weight:700; color:var(--text);
 }
 .metric-value.good{ color:var(--teal); }
@@ -494,7 +398,7 @@ def get_groq_api_key() -> str:
 with st.sidebar:
     st.markdown(
         '<div class="eyebrow">PT Retailindo Nusantara</div>'
-        '<div style="font-family:\'Space Grotesk\', \'Segoe UI Emoji\', \'Apple Color Emoji\', \'Noto Color Emoji\', sans-serif;font-weight:700;font-size:20px;color:#EDEFF5;">'
+        '<div style="font-family:\'Space Grotesk\',sans-serif;font-weight:700;font-size:20px;color:#EDEFF5;">'
         '📦 Control Tower</div>',
         unsafe_allow_html=True,
     )
@@ -537,16 +441,12 @@ def load_system(api_key: str, csv_dir: str):
 
 
 # ---------------- Hero ----------------
+st.markdown('<div class="eyebrow">Multi-Agentic LLM System</div>', unsafe_allow_html=True)
+st.markdown('<div class="hero-title">🏬 Control Tower — PT Retailindo Nusantara</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="hero-card">'
-    '<div class="eyebrow-badge"><span class="pip"></span>Multi-Agentic LLM System</div>'
-    '<div class="hero-title">🏬 Control Tower — PT Retailindo Nusantara</div>'
-    '<div class="hero-sub">Satu permintaan masuk, <b>Orchestrator</b> langsung membaca konteksnya dan '
-    'merutekannya ke agent divisi yang paling relevan &mdash; lengkap dengan <span class="accent">RAG</span> '
-    'untuk menggali data internal dan <span class="accent">tool calling</span> untuk aksi nyata. '
-    'Yang lebih menarik, antar-agent bisa saling <b>berkonsultasi secara peer-to-peer</b> layaknya tim asli: '
-    'misalnya agent Inventory otomatis menyapa agent Finance begitu stok sebuah produk habis.</div>'
-    '</div>',
+    '<div class="hero-sub">Orchestrator merutekan setiap permintaan ke satu/lebih agent divisi '
+    '(RAG + tool calling). Agent divisi bisa saling berkonsultasi secara peer-to-peer '
+    '&mdash; misalnya Inventory menghubungi Finance saat stok habis.</div>',
     unsafe_allow_html=True,
 )
 
@@ -680,29 +580,13 @@ if run_clicked:
     components.html(
         """
         <script>
-        (function () {
+        setTimeout(function () {
             var doc = window.parent.document;
-            var attempts = 0;
-            var maxAttempts = 30; // ~3 detik total, cukup untuk render selesai
-
-            function tryScroll() {
-                attempts++;
-                var el = doc.getElementById('hasil-section');
-                if (el) {
-                    el.scrollIntoView({behavior: 'smooth', block: 'start'});
-                    // Ulangi sekali lagi setelah konten (tabs, dsb.) selesai render,
-                    // supaya posisi scroll tetap akurat walau tinggi halaman berubah.
-                    setTimeout(function () {
-                        el.scrollIntoView({behavior: 'smooth', block: 'start'});
-                    }, 400);
-                    return;
-                }
-                if (attempts < maxAttempts) {
-                    setTimeout(tryScroll, 100);
-                }
+            var el = doc.getElementById('hasil-section');
+            if (el) {
+                el.scrollIntoView({behavior: 'smooth', block: 'start'});
             }
-            tryScroll();
-        })();
+        }, 150);
         </script>
         """,
         height=0,

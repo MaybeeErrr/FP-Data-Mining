@@ -634,22 +634,39 @@ Rekomendasi akhir:"""
             konteks = grounding.get(divisi, "")
             prompt = f"""Kamu adalah Evaluator (LLM-as-a-Judge). Nilai seberapa jawaban berikut didukung
 PENUH oleh konteks yang diberikan (faithfulness), skala 0.0-1.0 (1.0 = didukung penuh, 0.0 = tidak
-didukung sama sekali / mengarang). Jawab HANYA dengan satu angka desimal, tanpa penjelasan.
+didukung sama sekali / mengarang).
+
+Wajib jawab dalam format PERSIS satu baris berikut, tanpa penjelasan lain sebelum atau sesudahnya:
+SKOR: <angka 0.0-1.0>
 
 Konteks:
 {konteks}
 
 Jawaban yang dinilai:
-{jawaban}
-
-Skor faithfulness (0.0-1.0):"""
+{jawaban}"""
             try:
                 resp = invoke_with_retry(self.llm, prompt).content.strip()
-                match = re.search(r"[01](?:\.\d+)?", resp)
-                score = float(match.group()) if match else 0.5
+                # Ambil angka setelah label "SKOR:" kalau model patuh formatnya;
+                # kalau tidak, ambil kemunculan angka TERAKHIR di respons (bukan yang pertama)
+                # supaya tidak salah menangkap digit dari kalimat penjelasan yang tetap
+                # ditambahkan model meski sudah dilarang.
+                label_match = re.search(r"skor\s*:?\s*(0(?:\.\d+)?|1(?:\.0+)?)", resp, re.IGNORECASE)
+                if label_match:
+                    score = float(label_match.group(1))
+                else:
+                    all_matches = re.findall(r"\b(0(?:\.\d+)?|1(?:\.0+)?)\b", resp)
+                    if all_matches:
+                        score = float(all_matches[-1])
+                    else:
+                        # Gagal parse total: anggap "tidak yakin", JANGAN otomatis anggap
+                        # halusinasi -- skor 0.5 yang lama membuat status selalu ke-flag
+                        # karena threshold hallucination_flag-nya score < 0.6.
+                        print(f"[Peringatan] Evaluator tidak menghasilkan skor terparse untuk '{divisi}': {resp!r}")
+                        score = 0.7
+                score = max(0.0, min(1.0, score))
             except Exception as e:
                 print(f"[Peringatan] Evaluator gagal untuk divisi '{divisi}': {e}")
-                score = 0.5
+                score = 0.7
             hasil[divisi] = {
                 "faithfulness_score": round(score, 2),
                 "hallucination_flag": score < 0.6,

@@ -19,6 +19,7 @@ import os
 import time
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from agent_core import AVAILABLE_AGENTS, DIVISI_LABEL, MultiAgentSystem
 
@@ -478,8 +479,26 @@ if run_clicked:
             st.error(f"Eksekusi gagal: {e}")
             st.stop()
 
+    st.markdown('<div id="hasil-section"></div>', unsafe_allow_html=True)
     st.markdown("---")
     st.markdown('<div class="section-label">📋 Hasil</div>', unsafe_allow_html=True)
+
+    # Auto-scroll ke bagian Hasil supaya user tidak perlu scroll manual
+    # setiap kali selesai menjalankan query (mirip behavior chat).
+    components.html(
+        """
+        <script>
+        setTimeout(function () {
+            var doc = window.parent.document;
+            var el = doc.getElementById('hasil-section');
+            if (el) {
+                el.scrollIntoView({behavior: 'smooth', block: 'start'});
+            }
+        }, 150);
+        </script>
+        """,
+        height=0,
+    )
 
     st.markdown(f"**Query:** {esc(query)}", unsafe_allow_html=True)
 

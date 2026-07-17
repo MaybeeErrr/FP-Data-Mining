@@ -37,7 +37,11 @@ from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langgraph.graph import END, StateGraph
 
-MODEL_NAME = "openai/gpt-oss-120b"  # model open-weight via Groq (pengganti llama-3.3-70b yang di-deprecate)
+MODEL_NAME = "openai/gpt-oss-20b"  # model open-weight via Groq: pengganti resmi llama-3.1-8b-instant
+# (lebih cepat & limit free-tier lebih longgar dibanding openai/gpt-oss-120b, yang merupakan
+# pengganti llama-3.3-70b-versatile dan jauh lebih berat -- itu penyebab utama loading jadi lambat.
+# Kalau butuh kualitas jawaban lebih tinggi dan tidak keberatan lebih lambat, bisa diganti balik
+# ke "openai/gpt-oss-120b" lewat parameter `model_name` di MultiAgentSystem / sidebar app.py.)
 EMBEDDING_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 AVAILABLE_AGENTS = ["marketing", "customer_service", "inventory", "hr", "finance"]
@@ -381,9 +385,9 @@ class AgentState(TypedDict):
 class MultiAgentSystem:
     """Membungkus llm, retrieval, tools, dan graph menjadi satu objek siap pakai oleh app.py."""
 
-    def __init__(self, groq_api_key: str, csv_dir: Optional[str] = None):
+    def __init__(self, groq_api_key: str, csv_dir: Optional[str] = None, model_name: str = MODEL_NAME):
         os.environ["GROQ_API_KEY"] = groq_api_key
-        self.llm = ChatGroq(model=MODEL_NAME, temperature=0.3)
+        self.llm = ChatGroq(model=model_name, temperature=0.3)
 
         raw_docs = build_knowledge_base(csv_dir)
         self.vectorstores = build_vectorstores(raw_docs)
@@ -444,50 +448,64 @@ Jawaban {DIVISI_LABEL[divisi]}:"""
         return answer, sources, full_context
 
     def _call_agent_tools(self, divisi: str, query: str):
+        """
+        Sebelumnya fungsi ini melakukan 2 panggilan LLM terpisah (paksa tool wajib, lalu tool
+        bebas) untuk divisi yang punya tool wajib -- itu 2x latency Groq per agent yang butuh
+        tool. Sekarang digabung jadi 1 panggilan yang boleh memanggil beberapa tool sekaligus,
+        dengan instruksi eksplisit soal tool mana yang wajib. Fallback single-tool-call di bawah
+        hanya jalan (nambah 1 panggilan lagi) kalau model ternyata lupa memanggil tool wajibnya --
+        jarang terjadi, jadi rata-rata kasus tetap 1 panggilan saja.
+        """
         tools = self.agent_tools.get(divisi)
         if not tools:
             return "", []
 
         tool_text = ""
-        calls_made = []
-
+        calls_made: list = []
         mandatory_tool = self.mandatory_first_tool.get(divisi)
-        if mandatory_tool is not None:
+        mandatory_note = (
+            f"\nWAJIB panggil tool `{mandatory_tool.name}` untuk verifikasi data terkini "
+            f"(tentukan sendiri argumennya dari kalimat user), sebelum/bersamaan dengan tool lain "
+            f"kalau relevan."
+            if mandatory_tool is not None else ""
+        )
+
+        try:
+            llm_with_tools = self.llm.bind_tools(tools)
+            decide_prompt = f"""Kamu adalah {DIVISI_LABEL[divisi]} pada sistem PT Retailindo Nusantara.
+Panggil tool yang sesuai untuk memenuhi permintaan berikut -- boleh lebih dari satu tool sekaligus
+kalau perlu (mis. verifikasi stok lalu cari cabang alternatif).{mandatory_note}
+Jika tidak ada tool yang relevan sama sekali, jangan panggil tool apa pun.
+
+Permintaan: "{query}"
+"""
+            ai_msg = invoke_with_retry(llm_with_tools, decide_prompt)
+            for call in (getattr(ai_msg, "tool_calls", None) or []):
+                tool_fn = {t.name: t for t in tools}.get(call["name"])
+                if tool_fn is None:
+                    continue
+                result = tool_fn.invoke(call["args"])
+                tool_text += f"\n[Tool {call['name']}({call['args']})]: {result}"
+                calls_made.append((call["name"], call["args"], result))
+        except Exception as e:
+            print(f"[Peringatan] Tool calling gagal untuk {divisi}: {e}")
+
+        if mandatory_tool is not None and not any(c[0] == mandatory_tool.name for c in calls_made):
             try:
                 llm_forced = self.llm.bind_tools([mandatory_tool], tool_choice=mandatory_tool.name)
-                forced_prompt = f"""Kamu adalah {DIVISI_LABEL[divisi]}. Verifikasi dulu data terkini dengan
+                forced_prompt = f"""Kamu adalah {DIVISI_LABEL[divisi]}. Verifikasi data terkini dengan
 memanggil tool `{mandatory_tool.name}` berdasarkan permintaan berikut (tentukan sendiri argumennya
 dari kalimat user).
 
 Permintaan: "{query}"
 """
-                ai_msg = invoke_with_retry(llm_forced, forced_prompt)
-                for call in (getattr(ai_msg, "tool_calls", None) or []):
+                forced_msg = invoke_with_retry(llm_forced, forced_prompt)
+                for call in (getattr(forced_msg, "tool_calls", None) or []):
                     result = mandatory_tool.invoke(call["args"])
                     tool_text += f"\n[Tool {call['name']}({call['args']})]: {result}"
                     calls_made.append((call["name"], call["args"], result))
             except Exception as e:
-                print(f"[Peringatan] Gagal memaksa tool wajib '{mandatory_tool.name}' untuk {divisi}: {e}")
-
-        try:
-            llm_with_tools = self.llm.bind_tools(tools)
-            decide_prompt = f"""Kamu adalah {DIVISI_LABEL[divisi]} pada sistem PT Retailindo Nusantara.
-Jika permintaan berikut membutuhkan data sistem internal tambahan (mis. mencari stok di cabang lain,
-mengecek anggaran), panggil tool yang sesuai dengan argumen yang tepat. Jika tidak relevan, jangan
-panggil tool apa pun.
-
-Permintaan: "{query}"
-"""
-            ai_msg2 = invoke_with_retry(llm_with_tools, decide_prompt)
-            for call in (getattr(ai_msg2, "tool_calls", None) or []):
-                if any(c[0] == call["name"] and c[1] == call["args"] for c in calls_made):
-                    continue
-                tool_fn = {t.name: t for t in tools}[call["name"]]
-                result = tool_fn.invoke(call["args"])
-                tool_text += f"\n[Tool {call['name']}({call['args']})]: {result}"
-                calls_made.append((call["name"], call["args"], result))
-        except Exception as e:
-            print(f"[Peringatan] Tool calling bebas gagal untuk {divisi}: {e}")
+                print(f"[Peringatan] Fallback tool wajib '{mandatory_tool.name}' gagal untuk {divisi}: {e}")
 
         return tool_text, calls_made
 
@@ -629,44 +647,63 @@ Rekomendasi akhir:"""
         }
 
     def _evaluate_hallucination_and_accuracy(self, query: str, outputs: dict, grounding: dict) -> dict:
+        """
+        Sebelumnya: 1 panggilan LLM per divisi (bisa sampai 5x). Sekarang digabung jadi 1
+        panggilan LLM yang menilai semua divisi sekaligus -- jauh lebih cepat, terutama saat
+        Evaluator Agent diaktifkan bersamaan dengan banyak divisi ter-route.
+        """
+        divisi_list = list(outputs.keys())
+        if not divisi_list:
+            return {}
+
+        blocks = []
+        for divisi in divisi_list:
+            konteks = grounding.get(divisi, "") or "(tidak ada konteks)"
+            jawaban = outputs.get(divisi, "")
+            blocks.append(f"=== DIVISI: {divisi} ===\nKonteks:\n{konteks}\n\nJawaban yang dinilai:\n{jawaban}")
+        combined_blocks = "\n\n".join(blocks)
+
+        prompt = f"""Kamu adalah Evaluator (LLM-as-a-Judge). Untuk SETIAP divisi di bawah, nilai seberapa
+jawabannya didukung PENUH oleh konteks yang diberikan (faithfulness), skala 0.0-1.0 (1.0 = didukung
+penuh, 0.0 = tidak didukung sama sekali / mengarang).
+
+Wajib jawab dengan PERSIS satu baris per divisi, format:
+<nama_divisi>: <angka 0.0-1.0>
+Tidak ada penjelasan lain, tidak ada baris kosong, tidak ada markdown. Nama divisi harus persis
+salah satu dari: {", ".join(divisi_list)}
+
+Permintaan awal: "{query}"
+
+{combined_blocks}"""
+
+        resp = ""
+        try:
+            resp = invoke_with_retry(self.llm, prompt).content.strip()
+        except Exception as e:
+            print(f"[Peringatan] Evaluator batch gagal memanggil LLM: {e}")
+
+        parsed_scores: Dict[str, float] = {}
+        for line in resp.splitlines():
+            m = re.match(r"\s*([a-z_]+)\s*[:\-]\s*(0(?:\.\d+)?|1(?:\.0+)?)", line.strip(), re.IGNORECASE)
+            if not m:
+                continue
+            key = m.group(1).lower()
+            for divisi in divisi_list:
+                if key == divisi or key in divisi or divisi in key:
+                    parsed_scores[divisi] = max(0.0, min(1.0, float(m.group(2))))
+                    break
+
+        if not resp:
+            print(f"[Peringatan] Evaluator tidak menghasilkan respons sama sekali untuk: {divisi_list}")
+        elif len(parsed_scores) < len(divisi_list):
+            hilang = [d for d in divisi_list if d not in parsed_scores]
+            print(f"[Peringatan] Evaluator gagal parse skor untuk sebagian divisi {hilang}. Respons: {resp!r}")
+
         hasil = {}
-        for divisi, jawaban in outputs.items():
-            konteks = grounding.get(divisi, "")
-            prompt = f"""Kamu adalah Evaluator (LLM-as-a-Judge). Nilai seberapa jawaban berikut didukung
-PENUH oleh konteks yang diberikan (faithfulness), skala 0.0-1.0 (1.0 = didukung penuh, 0.0 = tidak
-didukung sama sekali / mengarang).
-
-Wajib jawab dalam format PERSIS satu baris berikut, tanpa penjelasan lain sebelum atau sesudahnya:
-SKOR: <angka 0.0-1.0>
-
-Konteks:
-{konteks}
-
-Jawaban yang dinilai:
-{jawaban}"""
-            try:
-                resp = invoke_with_retry(self.llm, prompt).content.strip()
-                # Ambil angka setelah label "SKOR:" kalau model patuh formatnya;
-                # kalau tidak, ambil kemunculan angka TERAKHIR di respons (bukan yang pertama)
-                # supaya tidak salah menangkap digit dari kalimat penjelasan yang tetap
-                # ditambahkan model meski sudah dilarang.
-                label_match = re.search(r"skor\s*:?\s*(0(?:\.\d+)?|1(?:\.0+)?)", resp, re.IGNORECASE)
-                if label_match:
-                    score = float(label_match.group(1))
-                else:
-                    all_matches = re.findall(r"\b(0(?:\.\d+)?|1(?:\.0+)?)\b", resp)
-                    if all_matches:
-                        score = float(all_matches[-1])
-                    else:
-                        # Gagal parse total: anggap "tidak yakin", JANGAN otomatis anggap
-                        # halusinasi -- skor 0.5 yang lama membuat status selalu ke-flag
-                        # karena threshold hallucination_flag-nya score < 0.6.
-                        print(f"[Peringatan] Evaluator tidak menghasilkan skor terparse untuk '{divisi}': {resp!r}")
-                        score = 0.7
-                score = max(0.0, min(1.0, score))
-            except Exception as e:
-                print(f"[Peringatan] Evaluator gagal untuk divisi '{divisi}': {e}")
-                score = 0.7
+        for divisi in divisi_list:
+            # Gagal parse total dianggap "tidak yakin", bukan otomatis halusinasi
+            # (threshold hallucination_flag-nya score < 0.6).
+            score = parsed_scores.get(divisi, 0.7)
             hasil[divisi] = {
                 "faithfulness_score": round(score, 2),
                 "hallucination_flag": score < 0.6,

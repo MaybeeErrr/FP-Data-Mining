@@ -79,7 +79,7 @@ html, body, [class*="css"]{
   font-family:'Inter', sans-serif;
 }
 h1,h2,h3,h4{
-  font-family:'Space Grotesk', sans-serif !important;
+  font-family:'Space Grotesk', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif !important;
 }
 code, .mono{
   font-family:'IBM Plex Mono', monospace !important;
@@ -120,7 +120,7 @@ section[data-testid="stSidebar"] .stMarkdown p{ color:var(--muted); }
   border:none;
   border-radius:10px;
   font-weight:600;
-  font-family:'Space Grotesk', sans-serif;
+  font-family:'Space Grotesk', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
   letter-spacing:.2px;
   transition:transform .08s ease, box-shadow .15s ease;
 }
@@ -149,7 +149,7 @@ section[data-testid="stSidebar"] .stMarkdown p{ color:var(--muted); }
 .stTabs [data-baseweb="tab"]{
   background:transparent;
   color:var(--muted);
-  font-family:'Space Grotesk', sans-serif;
+  font-family:'Space Grotesk', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
   font-weight:600;
   border-radius:8px 8px 0 0;
 }
@@ -298,7 +298,7 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
   display:inline-flex;
   align-items:center;
   gap:8px;
-  font-family:'IBM Plex Mono', monospace;
+  font-family:'IBM Plex Mono', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', monospace;
   font-size:12.5px;
   font-weight:600;
   padding:9px 16px 9px 12px;
@@ -383,7 +383,7 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
   display:flex; align-items:center; gap:10px; margin-bottom:8px;
 }
 .agent-card-title{
-  font-family:'Space Grotesk', sans-serif;
+  font-family:'Space Grotesk', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
   font-weight:600;
   font-size:15.5px;
   color:var(--text);
@@ -447,7 +447,7 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
   color:var(--muted); margin-bottom:6px;
 }
 .metric-value{
-  font-family:'Space Grotesk', sans-serif;
+  font-family:'Space Grotesk', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
   font-size:22px; font-weight:700; color:var(--text);
 }
 .metric-value.good{ color:var(--teal); }
@@ -494,7 +494,7 @@ def get_groq_api_key() -> str:
 with st.sidebar:
     st.markdown(
         '<div class="eyebrow">PT Retailindo Nusantara</div>'
-        '<div style="font-family:\'Space Grotesk\',sans-serif;font-weight:700;font-size:20px;color:#EDEFF5;">'
+        '<div style="font-family:\'Space Grotesk\', \'Segoe UI Emoji\', \'Apple Color Emoji\', \'Noto Color Emoji\', sans-serif;font-weight:700;font-size:20px;color:#EDEFF5;">'
         '📦 Control Tower</div>',
         unsafe_allow_html=True,
     )

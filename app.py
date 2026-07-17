@@ -253,6 +253,18 @@ hr, [data-testid="stDivider"]{ border-color:var(--border) !important; }
   background-clip:text;
   -webkit-text-fill-color:transparent;
 }
+/* Emoji ikut "dimakan" oleh trik gradient-text di atas (background-clip:text +
+   text-fill-color:transparent membuat semua glyph termasuk emoji jadi transparan/putih
+   pucat, dan warna aslinya baru muncul saat teks diseleksi karena ::selection
+   melewati efek clip ini). Bungkus emoji dengan span ini supaya render pakai
+   warna emoji bawaan, bukan ikut ter-clip. */
+.hero-title .emoji-native{
+  background:none;
+  -webkit-background-clip:initial;
+  background-clip:initial;
+  -webkit-text-fill-color:initial;
+  color:initial;
+}
 .hero-sub{
   position:relative;
   color:var(--muted);
@@ -540,7 +552,7 @@ def load_system(api_key: str, csv_dir: str):
 st.markdown(
     '<div class="hero-card">'
     '<div class="eyebrow-badge"><span class="pip"></span>Multi-Agentic LLM System</div>'
-    '<div class="hero-title">🏬 Control Tower — PT Retailindo Nusantara</div>'
+    '<div class="hero-title"><span class="emoji-native">🏬</span> Control Tower — PT Retailindo Nusantara</div>'
     '<div class="hero-sub">Satu permintaan masuk, <b>Orchestrator</b> langsung membaca konteksnya dan '
     'merutekannya ke agent divisi yang paling relevan &mdash; lengkap dengan <span class="accent">RAG</span> '
     'untuk menggali data internal dan <span class="accent">tool calling</span> untuk aksi nyata. '
@@ -783,28 +795,28 @@ if run_clicked:
             effi = eval_result["efficiency"]
             completed = eff.get("task_completed", False)
 
-            metrics_html = f"""
-            <div class="metric-grid">
-              <div class="metric-card">
-                <div class="metric-label">Task Completed</div>
-                <div class="metric-value {'good' if completed else 'bad'}">{'Ya' if completed else 'Tidak'}</div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-label">Latency</div>
-                <div class="metric-value">{effi.get('latency_seconds', 0)}s</div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-label">Agent Dipanggil</div>
-                <div class="metric-value">{effi.get('agents_called', 0)}</div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-label">Status Efisiensi</div>
-                <div class="metric-value {'good' if effi.get('status') == 'OK' else 'bad'}" style="font-size:15px;">
-                  {esc(effi.get('status', '-'))}
-                </div>
-              </div>
-            </div>
-            """
+            metrics_html = (
+                '<div class="metric-grid">'
+                '<div class="metric-card">'
+                '<div class="metric-label">Task Completed</div>'
+                f'<div class="metric-value {"good" if completed else "bad"}">{"Ya" if completed else "Tidak"}</div>'
+                '</div>'
+                '<div class="metric-card">'
+                '<div class="metric-label">Latency</div>'
+                f'<div class="metric-value">{effi.get("latency_seconds", 0)}s</div>'
+                '</div>'
+                '<div class="metric-card">'
+                '<div class="metric-label">Agent Dipanggil</div>'
+                f'<div class="metric-value">{effi.get("agents_called", 0)}</div>'
+                '</div>'
+                '<div class="metric-card">'
+                '<div class="metric-label">Status Efisiensi</div>'
+                f'<div class="metric-value {"good" if effi.get("status") == "OK" else "bad"}" style="font-size:15px;">'
+                f'{esc(effi.get("status", "-"))}'
+                '</div>'
+                '</div>'
+                '</div>'
+            )
             st.markdown(metrics_html, unsafe_allow_html=True)
 
             st.markdown('<div class="section-label">Explainability</div>', unsafe_allow_html=True)
@@ -832,12 +844,13 @@ if run_clicked:
                     if flagged else
                     '<span class="flag-badge" style="background:rgba(52,211,153,0.15);color:#34D399;">✓ aman</span>'
                 )
-                rows_html += f"""
-                <div class="score-row">
-                  <div class="score-name">{DIVISI_ICON.get(divisi,'')} {esc(DIVISI_LABEL.get(divisi, divisi))}</div>
-                  <div class="score-bar-track"><div class="score-bar-fill" style="width:{score*100:.0f}%;background:{bar_color};"></div></div>
-                  <div class="score-val">{score:.2f}</div>
-                  {badge}
-                </div>
-                """
+                rows_html += (
+                    f'<div class="score-row">'
+                    f'<div class="score-name">{DIVISI_ICON.get(divisi, "")} {esc(DIVISI_LABEL.get(divisi, divisi))}</div>'
+                    f'<div class="score-bar-track"><div class="score-bar-fill" '
+                    f'style="width:{score*100:.0f}%;background:{bar_color};"></div></div>'
+                    f'<div class="score-val">{score:.2f}</div>'
+                    f'{badge}'
+                    f'</div>'
+                )
             st.markdown(f'<div class="agent-card" style="border-left-color:#232C42;">{rows_html}</div>', unsafe_allow_html=True)

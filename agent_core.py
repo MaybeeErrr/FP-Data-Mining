@@ -26,6 +26,7 @@ import glob
 import os
 import random
 import re
+import threading
 import time
 from typing import Annotated, Dict, List, Optional, TypedDict
 
@@ -55,14 +56,35 @@ DIVISI_LABEL = {
 }
 
 
+class LLMCallCounter:
+    """Penghitung berapa kali API Groq benar-benar dipanggil (termasuk percobaan retry, karena
+    itu tetap makan kuota rate limit) -- thread-safe karena node divisi jalan paralel di LangGraph."""
+
+    def __init__(self):
+        self._n = 0
+        self._lock = threading.Lock()
+
+    def inc(self):
+        with self._lock:
+            self._n += 1
+
+    @property
+    def value(self) -> int:
+        with self._lock:
+            return self._n
+
+
 # ============================================================
 # 1. Retry wrapper untuk semua pemanggilan LLM
 # ============================================================
-def invoke_with_retry(runnable, prompt, max_retries: int = 4, base_delay: float = 2.0):
+def invoke_with_retry(runnable, prompt, max_retries: int = 4, base_delay: float = 2.0,
+                       counter: Optional[LLMCallCounter] = None):
     """Retry + exponential backoff untuk pemanggilan LLM (rentan rate limit di tier gratis Groq)."""
     last_err = None
     for attempt in range(max_retries):
         try:
+            if counter is not None:
+                counter.inc()
             return runnable.invoke(prompt)
         except Exception as e:
             last_err = e
@@ -74,6 +96,7 @@ def invoke_with_retry(runnable, prompt, max_retries: int = 4, base_delay: float 
                   f"Mencoba lagi dalam {wait:.1f} detik...")
             time.sleep(wait)
     raise last_err
+
 
 
 # ============================================================
@@ -378,6 +401,27 @@ ACTION_TOOL_NAMES = {
     "ajukan_cuti", "ajukan_promo",
 }
 
+# Penyaring murah (bukan LLM, gratis & instan) supaya divisi TANPA tool wajib tidak selalu
+# memicu 1 panggilan LLM ekstra hanya untuk "memutuskan pakai tool atau tidak". Inventory
+# dikecualikan (selalu wajib verifikasi stok), sisanya cuma dicek dulu ada kata kunci relevan.
+_TOOL_TRIGGER_KEYWORDS = {
+    "customer_service": ["stok", "retur", "kembalikan", "kembali", "refund", "komplain"],
+    "finance": ["anggaran", "budget", "approve", "setuju", "rush order", "dana"],
+    "marketing": ["promo", "diskon", "kampanye", "campaign"],
+    "hr": ["cuti", "leave", "karyawan", "rekrut", "libur"],
+}
+
+
+def _perlu_cek_tool(divisi: str, query: str) -> bool:
+    """True kalau layak memanggil LLM untuk memutuskan tool. Divisi dengan tool WAJIB (inventory)
+    selalu True; divisi lain hanya True kalau query memuat kata kunci relevan -- ini yang
+    memangkas jumlah panggilan LLM per query dan mengurangi risiko rate limit."""
+    keywords = _TOOL_TRIGGER_KEYWORDS.get(divisi)
+    if keywords is None:
+        return True
+    q = query.lower()
+    return any(k in q for k in keywords)
+
 
 def buat_rush_order(cabang: str, produk: str, qty: int) -> dict:
     """AKSI: mengajukan & memproses rush order sungguhan (memotong anggaran rush order cabang
@@ -537,6 +581,7 @@ class MultiAgentSystem:
     def __init__(self, groq_api_key: str, csv_dir: Optional[str] = None, model_name: str = MODEL_NAME):
         os.environ["GROQ_API_KEY"] = groq_api_key
         self.llm = ChatGroq(model=model_name, temperature=0.3)
+        self._call_counter = LLMCallCounter()
 
         raw_docs = build_knowledge_base(csv_dir)
         self.vectorstores = build_vectorstores(raw_docs)
@@ -558,7 +603,7 @@ Contoh format jawaban yang benar: inventory, finance
 Permintaan: "{state['query']}"
 """
         try:
-            response = invoke_with_retry(self.llm, prompt).content.strip().lower()
+            response = invoke_with_retry(self.llm, prompt, counter=self._call_counter).content.strip().lower()
         except Exception as e:
             print(f"[Peringatan] Orchestrator gagal memanggil LLM: {e}. Fallback ke customer_service.")
             return {"route": ["customer_service"]}
@@ -600,7 +645,7 @@ Konteks internal (RAG):
 Permintaan: "{query}"
 
 Jawaban {DIVISI_LABEL[divisi]}:"""
-        answer = invoke_with_retry(self.llm, prompt).content.strip()
+        answer = invoke_with_retry(self.llm, prompt, counter=self._call_counter).content.strip()
         return answer, sources, full_context
 
     def _call_agent_tools(self, divisi: str, query: str):
@@ -616,9 +661,14 @@ Jawaban {DIVISI_LABEL[divisi]}:"""
         if not tools:
             return "", []
 
+        mandatory_tool = self.mandatory_first_tool.get(divisi)
+        if mandatory_tool is None and not _perlu_cek_tool(divisi, query):
+            # Query jelas tidak menyinggung apa pun yang butuh tool divisi ini -- skip 1
+            # panggilan LLM sepenuhnya, langsung jawab dari RAG saja di _run_specialist_answer.
+            return "", []
+
         tool_text = ""
         calls_made: list = []
-        mandatory_tool = self.mandatory_first_tool.get(divisi)
         mandatory_note = (
             f"\nWAJIB panggil tool `{mandatory_tool.name}` untuk verifikasi data terkini "
             f"(tentukan sendiri argumennya dari kalimat user), sebelum/bersamaan dengan tool lain "
@@ -643,7 +693,7 @@ Jika tidak ada tool yang relevan sama sekali, jangan panggil tool apa pun.
 
 Permintaan: "{query}"
 """
-            ai_msg = invoke_with_retry(llm_with_tools, decide_prompt)
+            ai_msg = invoke_with_retry(llm_with_tools, decide_prompt, counter=self._call_counter)
             for call in (getattr(ai_msg, "tool_calls", None) or []):
                 tool_fn = {t.name: t for t in tools}.get(call["name"])
                 if tool_fn is None:
@@ -663,7 +713,7 @@ dari kalimat user).
 
 Permintaan: "{query}"
 """
-                forced_msg = invoke_with_retry(llm_forced, forced_prompt)
+                forced_msg = invoke_with_retry(llm_forced, forced_prompt, counter=self._call_counter)
                 for call in (getattr(forced_msg, "tool_calls", None) or []):
                     result = mandatory_tool.invoke(call["args"])
                     tool_text += f"\n[Tool {call['name']}({call['args']})]: {result}"
@@ -764,7 +814,7 @@ Aksi nyata yang sudah dieksekusi sistem (bukan sekadar wacana):
 
 Rekomendasi akhir:"""
         try:
-            final = invoke_with_retry(self.llm, prompt).content.strip()
+            final = invoke_with_retry(self.llm, prompt, counter=self._call_counter).content.strip()
         except Exception as e:
             print(f"[Peringatan] Aggregator gagal memanggil LLM: {e}.")
             final = ("Rekomendasi otomatis tidak dapat dibuat karena gangguan LLM. "
@@ -791,6 +841,7 @@ Rekomendasi akhir:"""
 
     def run(self, query: str) -> dict:
         """Menjalankan satu query lewat graph multi-agent, mengembalikan state hasil + latency."""
+        self._call_counter = LLMCallCounter()  # reset per query
         start_time = time.time()
         result = self.graph.invoke({
             "query": query,
@@ -803,16 +854,13 @@ Rekomendasi akhir:"""
             "final_answer": None,
         })
         result["_latency"] = time.time() - start_time
+        result["_llm_calls"] = self._call_counter.value
         return result
 
     # ---------- Evaluator Agent (Soal 4) ----------
     def evaluate(self, query: str, result: dict) -> dict:
         latency = result.get("_latency", 0.0)
-        eval_efficiency = {
-            "latency_seconds": round(latency, 2),
-            "agents_called": len(result["outputs"]),
-            "status": "OK" if latency < 15 else "PERLU DIOPTIMASI",
-        }
+        llm_calls_sebelum_eval = self._call_counter.value
 
         eval_explainability = {}
         for divisi, src_list in result["sources"].items():
@@ -824,6 +872,15 @@ Rekomendasi akhir:"""
         eval_accuracy_hallucination = self._evaluate_hallucination_and_accuracy(
             query, result["outputs"], result["grounding"]
         )
+
+        eval_efficiency = {
+            "latency_seconds": round(latency, 2),
+            "agents_called": len(result["outputs"]),
+            "status": "OK" if latency < 15 else "PERLU DIOPTIMASI",
+            "llm_calls_query": result.get("_llm_calls", llm_calls_sebelum_eval),
+            "llm_calls_evaluator": self._call_counter.value - llm_calls_sebelum_eval,
+            "llm_calls_total": self._call_counter.value,
+        }
 
         aksi_list = result.get("action_log", [])
         eval_effectiveness = {
@@ -874,7 +931,7 @@ Permintaan awal: "{query}"
 
         resp = ""
         try:
-            resp = invoke_with_retry(self.llm, prompt).content.strip()
+            resp = invoke_with_retry(self.llm, prompt, counter=self._call_counter).content.strip()
         except Exception as e:
             print(f"[Peringatan] Evaluator batch gagal memanggil LLM: {e}")
 

@@ -77,9 +77,13 @@ class LLMCallCounter:
 # ============================================================
 # 1. Retry wrapper untuk semua pemanggilan LLM
 # ============================================================
-def invoke_with_retry(runnable, prompt, max_retries: int = 4, base_delay: float = 2.0,
+def invoke_with_retry(runnable, prompt, max_retries: int = 2, base_delay: float = 2.0,
                        counter: Optional[LLMCallCounter] = None):
-    """Retry + exponential backoff untuk pemanggilan LLM (rentan rate limit di tier gratis Groq)."""
+    """Retry + exponential backoff untuk pemanggilan LLM (rentan rate limit di tier gratis Groq).
+    max_retries sengaja dibuat kecil (2, bukan 4) -- tiap percobaan retry tetap kena hitung kuota
+    API oleh Groq walau gagal, jadi retry berlebihan saat memang lagi rate-limited justru
+    memperparah (makin banyak hit ke API yang sudah penuh) tanpa menambah peluang sukses secara
+    berarti."""
     last_err = None
     for attempt in range(max_retries):
         try:
@@ -699,10 +703,21 @@ Jawaban {DIVISI_LABEL[divisi]}:"""
         dengan instruksi eksplisit soal tool mana yang wajib. Fallback single-tool-call di bawah
         hanya jalan (nambah 1 panggilan lagi) kalau model ternyata lupa memanggil tool wajibnya --
         jarang terjadi, jadi rata-rata kasus tetap 1 panggilan saja.
+
+        KHUSUS query yang jelas berisi niat-aksi (_ada_niat_aksi): jangan lewat jalur "auto-decide
+        lalu paksa kalau gagal" di bawah (itu bisa jadi 2-3 panggilan LLM) -- LANGSUNG 1 panggilan
+        paksa (`tool_choice=<nama_tool_aksi>`) ke tool AKSI divisi ini. Ini penting untuk 2 alasan
+        sekaligus: (1) lebih hemat kuota/lebih cepat, jadi tidak gampang kena rate limit Groq yang
+        justru bikin retry berkali-kali dan aksinya tetap gagal kehabisan waktu, dan (2) hasilnya
+        deterministik -- tidak bergantung pada model "berkenan" memanggil tool AKSI sendiri.
         """
         tools = self.agent_tools.get(divisi)
         if not tools:
             return "", []
+
+        action_tool_name = DIVISI_ACTION_TOOL.get(divisi)
+        if action_tool_name is not None and _ada_niat_aksi(query):
+            return self._call_action_tool_directly(divisi, query, action_tool_name, tools)
 
         mandatory_tool = self.mandatory_first_tool.get(divisi)
         if mandatory_tool is None and not _perlu_cek_tool(divisi, query):
@@ -774,51 +789,51 @@ Permintaan: "{query}"
             except Exception as e:
                 print(f"[Peringatan] Fallback tool wajib '{mandatory_tool.name}' gagal untuk {divisi}: {e}")
 
-        # ---------- Tahap paksa AKSI ----------
-        # Sebelumnya, tool AKSI (buat_rush_order, proses_retur, dst.) cuma dipanggil kalau model
-        # SENDIRI memutuskan lewat tool_choice="auto" -- ini yang bikin "tidak ada aksi" walau
-        # user sudah minta eksplisit, karena model kecil/cepat (gpt-oss-20b) tidak selalu patuh.
-        # Sekarang: kalau kalimat user jelas berisi niat-aksi (_ada_niat_aksi) tapi tool AKSI
-        # milik divisi ini BELUM terpanggil di percobaan bebas di atas, kita PAKSA modelnya
-        # memanggil tool itu (tool_choice=<nama_tool>, sama seperti pola tool wajib inventory di
-        # atas) -- supaya AKSI benar-benar dieksekusi & tercatat, bukan cuma diucapkan.
-        action_tool_name = DIVISI_ACTION_TOOL.get(divisi)
-        if (
-            action_tool_name is not None
-            and _ada_niat_aksi(query)
-            and not any(c[0] == action_tool_name for c in calls_made)
-        ):
-            action_tool = next((t for t in tools if t.name == action_tool_name), None)
-            if action_tool is not None:
-                try:
-                    llm_forced_action = self.llm.bind_tools([action_tool], tool_choice=action_tool_name)
-                    forced_action_prompt = f"""Kamu adalah {DIVISI_LABEL[divisi]} pada sistem PT Retailindo
-Nusantara. User MEMINTA AKSI dijalankan secara eksplisit -- WAJIB panggil tool `{action_tool_name}`
-dengan argumen yang sesuai, diambil dari kalimat user (dan dari hasil tool sebelumnya di bawah ini
-kalau relevan, mis. nama cabang/produk yang sudah disebut).
-{_KATALOG_NOTE}
+        return tool_text, calls_made
 
-Hasil tool sebelumnya (kalau ada):
-{tool_text or "(tidak ada)"}
+    def _call_action_tool_directly(self, divisi: str, query: str, action_tool_name: str, tools: list):
+        """Jalur cepat (1 panggilan LLM SAJA) untuk query yang jelas-jelas berisi niat-aksi --
+        langsung paksa (`tool_choice=<nama_tool>`) tool AKSI divisi ini, tanpa lewat tahap
+        auto-decide dulu. Kalau gagal (mis. rate limit Groq), tercatat sebagai AKSI berstatus GAGAL
+        supaya kelihatan di tab "Aksi Dieksekusi" -- bukan cuma hilang tanpa jejak."""
+        action_tool = next((t for t in tools if t.name == action_tool_name), None)
+        if action_tool is None:
+            return "", []
+
+        tool_text = ""
+        calls_made: list = []
+        try:
+            llm_forced_action = self.llm.bind_tools([action_tool], tool_choice=action_tool_name)
+            forced_action_prompt = f"""Kamu adalah {DIVISI_LABEL[divisi]} pada sistem PT Retailindo
+Nusantara. User MEMINTA AKSI dijalankan secara eksplisit -- WAJIB panggil tool `{action_tool_name}`
+dengan argumen yang sesuai, diambil dari kalimat user.
+{_KATALOG_NOTE}
 
 Permintaan: "{query}"
 """
-                    forced_action_msg = invoke_with_retry(
-                        llm_forced_action, forced_action_prompt, counter=self._call_counter
+            forced_action_msg = invoke_with_retry(
+                llm_forced_action, forced_action_prompt, counter=self._call_counter
+            )
+            for call in (getattr(forced_action_msg, "tool_calls", None) or []):
+                try:
+                    result = action_tool.invoke(call["args"])
+                    tool_text += f"\n[Tool {call['name']}({call['args']})]: {result}"
+                    calls_made.append((call["name"], call["args"], result))
+                except Exception as tool_err:
+                    gagal_msg = f"GAGAL dipanggil ({tool_err})"
+                    tool_text += f"\n[Tool {call['name']}({call['args']})]: {gagal_msg}"
+                    calls_made.append(
+                        (call["name"], call["args"], {"status": "GAGAL", "alasan": str(tool_err)})
                     )
-                    for call in (getattr(forced_action_msg, "tool_calls", None) or []):
-                        try:
-                            result = action_tool.invoke(call["args"])
-                            tool_text += f"\n[Tool {call['name']}({call['args']})]: {result}"
-                            calls_made.append((call["name"], call["args"], result))
-                        except Exception as tool_err:
-                            gagal_msg = f"GAGAL dipanggil ({tool_err})"
-                            tool_text += f"\n[Tool {call['name']}({call['args']})]: {gagal_msg}"
-                            calls_made.append(
-                                (call["name"], call["args"], {"status": "GAGAL", "alasan": str(tool_err)})
-                            )
-                except Exception as e:
-                    print(f"[Peringatan] Paksa-panggil tool AKSI '{action_tool_name}' gagal untuk {divisi}: {e}")
+        except Exception as e:
+            # Biasanya rate limit Groq (retry di invoke_with_retry sudah habis) atau error koneksi.
+            # Dicatat sebagai AKSI GAGAL (bukan cuma print ke log) supaya user LANGSUNG lihat di UI
+            # kenapa tidak ada aksi, tanpa harus buka panel log server.
+            print(f"[Peringatan] Paksa-panggil tool AKSI '{action_tool_name}' gagal untuk {divisi}: {e}")
+            calls_made.append((
+                action_tool_name, {}, {"status": "GAGAL", "alasan": f"Panggilan LLM gagal: {e}"}
+            ))
+            tool_text += f"\n[Tool {action_tool_name}]: GAGAL dipanggil ({e})"
 
         return tool_text, calls_made
 

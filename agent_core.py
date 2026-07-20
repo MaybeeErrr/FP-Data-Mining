@@ -420,11 +420,45 @@ _TOOL_TRIGGER_KEYWORDS = {
     "hr": ["cuti", "leave", "karyawan", "rekrut", "libur"],
 }
 
+# Kata kerja/frasa imperatif GENERIK (lintas-divisi) yang menandakan user MEMINTA AKSI
+# dieksekusi -- beda dari _TOOL_TRIGGER_KEYWORDS di atas yang berbasis kata benda spesifik
+# per-divisi. Ini penting supaya permintaan aksi yang eksplisit tidak ikut ter-skip hanya
+# karena tidak memuat kata benda yang "ditebak" di daftar per-divisi.
+ACTION_INTENT_KEYWORDS = [
+    "tolong ajukan", "tolong proses", "tolong buatkan", "tolong lakukan",
+    "mohon diproses", "mohon ajukan", "silakan proses", "silakan ajukan",
+    "ajukan", "proses", "eksekusi", "jalankan", "aktifkan", "setujui",
+    "approve", "buatkan pesanan", "pesan sekarang", "lakukan sekarang",
+    "please process", "please approve", "go ahead and",
+]
+
+# Setiap divisi (yang punya tool AKSI) dipetakan ke SATU tool AKSI utamanya, dipakai untuk
+# memaksa (tool_choice=<nama_tool>) pemanggilan tool tsb kalau niat-aksi terdeteksi tapi
+# tool itu belum terpanggil lewat keputusan bebas model (tool_choice="auto").
+DIVISI_ACTION_TOOL = {
+    "inventory": "buat_rush_order",
+    "finance": "approve_anggaran_darurat",
+    "customer_service": "proses_retur",
+    "hr": "ajukan_cuti",
+    "marketing": "ajukan_promo",
+}
+
+
+def _ada_niat_aksi(query: str) -> bool:
+    """True kalau kalimat user memuat kata kerja imperatif yang menandakan permintaan AKSI
+    nyata (bukan sekadar pertanyaan informasi)."""
+    q = query.lower()
+    return any(k in q for k in ACTION_INTENT_KEYWORDS)
+
 
 def _perlu_cek_tool(divisi: str, query: str) -> bool:
     """True kalau layak memanggil LLM untuk memutuskan tool. Divisi dengan tool WAJIB (inventory)
-    selalu True; divisi lain hanya True kalau query memuat kata kunci relevan -- ini yang
-    memangkas jumlah panggilan LLM per query dan mengurangi risiko rate limit."""
+    selalu True; kalau query memuat niat-aksi generik (mis. "tolong ajukan ...") juga selalu True
+    supaya permintaan aksi eksplisit tidak pernah ke-skip; selain itu, divisi lain hanya True
+    kalau query memuat kata kunci relevan -- ini yang memangkas jumlah panggilan LLM per query
+    dan mengurangi risiko rate limit."""
+    if _ada_niat_aksi(query):
+        return True
     keywords = _TOOL_TRIGGER_KEYWORDS.get(divisi)
     if keywords is None:
         return True
@@ -739,6 +773,52 @@ Permintaan: "{query}"
                     calls_made.append((call["name"], call["args"], result))
             except Exception as e:
                 print(f"[Peringatan] Fallback tool wajib '{mandatory_tool.name}' gagal untuk {divisi}: {e}")
+
+        # ---------- Tahap paksa AKSI ----------
+        # Sebelumnya, tool AKSI (buat_rush_order, proses_retur, dst.) cuma dipanggil kalau model
+        # SENDIRI memutuskan lewat tool_choice="auto" -- ini yang bikin "tidak ada aksi" walau
+        # user sudah minta eksplisit, karena model kecil/cepat (gpt-oss-20b) tidak selalu patuh.
+        # Sekarang: kalau kalimat user jelas berisi niat-aksi (_ada_niat_aksi) tapi tool AKSI
+        # milik divisi ini BELUM terpanggil di percobaan bebas di atas, kita PAKSA modelnya
+        # memanggil tool itu (tool_choice=<nama_tool>, sama seperti pola tool wajib inventory di
+        # atas) -- supaya AKSI benar-benar dieksekusi & tercatat, bukan cuma diucapkan.
+        action_tool_name = DIVISI_ACTION_TOOL.get(divisi)
+        if (
+            action_tool_name is not None
+            and _ada_niat_aksi(query)
+            and not any(c[0] == action_tool_name for c in calls_made)
+        ):
+            action_tool = next((t for t in tools if t.name == action_tool_name), None)
+            if action_tool is not None:
+                try:
+                    llm_forced_action = self.llm.bind_tools([action_tool], tool_choice=action_tool_name)
+                    forced_action_prompt = f"""Kamu adalah {DIVISI_LABEL[divisi]} pada sistem PT Retailindo
+Nusantara. User MEMINTA AKSI dijalankan secara eksplisit -- WAJIB panggil tool `{action_tool_name}`
+dengan argumen yang sesuai, diambil dari kalimat user (dan dari hasil tool sebelumnya di bawah ini
+kalau relevan, mis. nama cabang/produk yang sudah disebut).
+{_KATALOG_NOTE}
+
+Hasil tool sebelumnya (kalau ada):
+{tool_text or "(tidak ada)"}
+
+Permintaan: "{query}"
+"""
+                    forced_action_msg = invoke_with_retry(
+                        llm_forced_action, forced_action_prompt, counter=self._call_counter
+                    )
+                    for call in (getattr(forced_action_msg, "tool_calls", None) or []):
+                        try:
+                            result = action_tool.invoke(call["args"])
+                            tool_text += f"\n[Tool {call['name']}({call['args']})]: {result}"
+                            calls_made.append((call["name"], call["args"], result))
+                        except Exception as tool_err:
+                            gagal_msg = f"GAGAL dipanggil ({tool_err})"
+                            tool_text += f"\n[Tool {call['name']}({call['args']})]: {gagal_msg}"
+                            calls_made.append(
+                                (call["name"], call["args"], {"status": "GAGAL", "alasan": str(tool_err)})
+                            )
+                except Exception as e:
+                    print(f"[Peringatan] Paksa-panggil tool AKSI '{action_tool_name}' gagal untuk {divisi}: {e}")
 
         return tool_text, calls_made
 

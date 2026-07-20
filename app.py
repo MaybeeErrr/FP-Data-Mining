@@ -817,7 +817,8 @@ if run_clicked:
 
     st.markdown(
         f'<div style="margin-top:14px;color:#8A93AC;font-size:12.5px;font-family:\'IBM Plex Mono\',monospace;">'
-        f'⏱ Latensi eksekusi: {result.get("_latency", 0):.2f} detik</div>',
+        f'⏱ Latensi eksekusi: {result.get("_latency", 0):.2f} detik &nbsp;·&nbsp; '
+        f'📡 Panggilan LLM (Groq): {result.get("_llm_calls", "-")}x</div>',
         unsafe_allow_html=True,
     )
 
@@ -855,6 +856,10 @@ if run_clicked:
                 '<div class="metric-card">'
                 '<div class="metric-label">Agent Dipanggil</div>'
                 f'<div class="metric-value">{effi.get("agents_called", 0)}</div>'
+                '</div>'
+                '<div class="metric-card">'
+                '<div class="metric-label">Panggilan LLM (query + eval)</div>'
+                f'<div class="metric-value">{effi.get("llm_calls_query", "-")} + {effi.get("llm_calls_evaluator", "-")}</div>'
                 '</div>'
                 '<div class="metric-card">'
                 '<div class="metric-label">Status Efisiensi</div>'

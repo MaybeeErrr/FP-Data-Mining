@@ -359,6 +359,15 @@ _stok_cabang = {
 }
 _anggaran_rush_order = {"Yogyakarta": 20_000_000, "Solo": 20_000_000}
 
+KATALOG_PRODUK = sorted({produk for (_, produk) in _stok_cabang})
+DAFTAR_CABANG = sorted({cabang for (cabang, _) in _stok_cabang})
+_KATALOG_NOTE = (
+    f"\nData yang ada di sistem -- produk: {', '.join(KATALOG_PRODUK)}. "
+    f"cabang: {', '.join(DAFTAR_CABANG)}. Kalau user tidak menyebut nama produk/cabang persis "
+    f"tapi maksudnya jelas merujuk ke salah satu di atas, gunakan nama itu PERSIS (jangan "
+    f"panggil tool dengan argumen kosong/menebak nama lain)."
+)
+
 
 def cek_stok_produk(cabang: str, produk: str) -> dict:
     """Mengecek jumlah stok sebuah produk pada satu cabang tertentu."""
@@ -681,6 +690,7 @@ Jawaban {DIVISI_LABEL[divisi]}:"""
             decide_prompt = f"""Kamu adalah {DIVISI_LABEL[divisi]} pada sistem PT Retailindo Nusantara.
 Panggil tool yang sesuai untuk memenuhi permintaan berikut -- boleh lebih dari satu tool sekaligus
 kalau perlu (mis. verifikasi stok lalu cari cabang alternatif).{mandatory_note}
+{_KATALOG_NOTE}
 
 PENTING -- bedakan PERTANYAAN vs PERMINTAAN AKSI:
 - Kalau user hanya BERTANYA/ingin tahu (mis. "berapa stok", "apa syarat retur", "berapa sisa cuti"),
@@ -698,9 +708,17 @@ Permintaan: "{query}"
                 tool_fn = {t.name: t for t in tools}.get(call["name"])
                 if tool_fn is None:
                     continue
-                result = tool_fn.invoke(call["args"])
-                tool_text += f"\n[Tool {call['name']}({call['args']})]: {result}"
-                calls_made.append((call["name"], call["args"], result))
+                try:
+                    result = tool_fn.invoke(call["args"])
+                    tool_text += f"\n[Tool {call['name']}({call['args']})]: {result}"
+                    calls_made.append((call["name"], call["args"], result))
+                except Exception as tool_err:
+                    # Jangan gagal diam-diam -- satu tool call yang error (mis. argumen kurang
+                    # lengkap) tidak boleh menggagalkan tool call lain, dan tetap tercatat supaya
+                    # user tahu ada AKSI yang GAGAL, bukan cuma tidak muncul tanpa penjelasan.
+                    gagal_msg = f"GAGAL dipanggil ({tool_err})"
+                    tool_text += f"\n[Tool {call['name']}({call['args']})]: {gagal_msg}"
+                    calls_made.append((call["name"], call["args"], {"status": "GAGAL", "alasan": str(tool_err)}))
         except Exception as e:
             print(f"[Peringatan] Tool calling gagal untuk {divisi}: {e}")
 
@@ -710,6 +728,7 @@ Permintaan: "{query}"
                 forced_prompt = f"""Kamu adalah {DIVISI_LABEL[divisi]}. Verifikasi data terkini dengan
 memanggil tool `{mandatory_tool.name}` berdasarkan permintaan berikut (tentukan sendiri argumennya
 dari kalimat user).
+{_KATALOG_NOTE}
 
 Permintaan: "{query}"
 """
@@ -888,7 +907,7 @@ Rekomendasi akhir:"""
             "aksi_dieksekusi": len(aksi_list),
             "aksi_berhasil": sum(
                 1 for a in aksi_list
-                if isinstance(a.get("hasil"), dict) and a["hasil"].get("status") not in ("DITOLAK",)
+                if isinstance(a.get("hasil"), dict) and a["hasil"].get("status") not in ("DITOLAK", "GAGAL")
             ),
         }
 

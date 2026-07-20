@@ -180,6 +180,11 @@ RETAIL_SOP_DOCS: Dict[str, List[str]] = {
         "berdampak langsung ke komplain pelanggan.",
         "Kebijakan Approval Anggaran: pengeluaran mendesak di atas anggaran bulanan wajib melalui "
         "approval manual dari Finance Manager, maksimal 1x24 jam.",
+        "SOP Pajak & Faktur: setiap transaksi penjualan wajib disertai faktur/struk resmi ber-PPN "
+        "sesuai ketentuan pajak yang berlaku, direkap oleh Finance setiap akhir bulan untuk "
+        "pelaporan pajak perusahaan.",
+        "Kebijakan Refund Pelanggan: refund uang (bukan retur barang) diproses maksimal 3 hari "
+        "kerja setelah disetujui Finance, ditransfer ke rekening/metode pembayaran asal.",
         "SOP Rekonsiliasi Keuangan Cabang: laporan keuangan cabang direkonsiliasi setiap akhir "
         "bulan, termasuk biaya rush order dan retur barang.",
     ],
@@ -191,6 +196,12 @@ RETAIL_SOP_DOCS: Dict[str, List[str]] = {
         "pelanggan dalam sehari wajib dieskalasi ke Inventory dan Finance dalam waktu 1 jam.",
         "Standar Respons CS: seluruh komplain pelanggan wajib direspons dalam waktu maksimal 2 jam "
         "kerja dan diberikan solusi konkret, bukan hanya permintaan maaf.",
+        "SOP Pelacakan Pesanan Online: pelanggan dapat melacak status pesanan online lewat nomor "
+        "order; estimasi pengiriman 2-4 hari kerja untuk wilayah Jawa Tengah & DIY, dan CS wajib "
+        "mengeskalasi ke Inventory jika pesanan terlambat lebih dari 2 hari dari estimasi.",
+        "Kebijakan Data Pribadi Pelanggan: data pribadi pelanggan (nomor telepon, alamat) hanya "
+        "boleh digunakan untuk keperluan transaksi & pengiriman, tidak dibagikan ke pihak ketiga "
+        "tanpa persetujuan, sesuai kebijakan privasi perusahaan.",
     ],
     "marketing": [
         "SOP Promosi & Stok: sebelum meluncurkan promosi diskon pada suatu SKU, Marketing wajib "
@@ -198,12 +209,22 @@ RETAIL_SOP_DOCS: Dict[str, List[str]] = {
         "komplain pelanggan.",
         "Kebijakan Kampanye Regional: kampanye marketing regional (misal Yogyakarta) disesuaikan "
         "dengan data stok & tren penjualan cabang setempat.",
+        "SOP Media Sosial & Endorsement: konten promosi di media sosial resmi perusahaan wajib "
+        "melalui review tim Marketing pusat sebelum tayang; kerja sama endorse/influencer di atas "
+        "Rp5.000.000 wajib persetujuan Finance terlebih dahulu.",
+        "Kebijakan Program Loyalitas Pelanggan: pelanggan terdaftar mengumpulkan poin dari setiap "
+        "transaksi (1 poin per Rp10.000), dapat ditukar voucher belanja setelah mencapai 100 poin.",
     ],
     "hr": [
         "SOP Jam Kerja & Cuti: karyawan cabang berhak atas cuti tahunan 12 hari, pengajuan minimal "
         "H-3 melalui sistem HR.",
         "SOP Rekrutmen Cabang Baru: setiap pembukaan cabang baru wajib diikuti rekrutmen minimal "
         "4 staf toko dan 1 supervisor dalam waktu 30 hari sebelum grand opening.",
+        "Kebijakan Penggajian & Lembur: gaji karyawan dibayarkan tiap tanggal 25, dengan lembur "
+        "dihitung 1.5x upah per jam untuk jam kerja di atas 8 jam/hari, sesuai ketentuan "
+        "ketenagakerjaan yang berlaku.",
+        "SOP Pelatihan Karyawan Baru: setiap karyawan baru wajib mengikuti pelatihan onboarding "
+        "3 hari (produk, layanan pelanggan, SOP toko) sebelum bertugas mandiri di lantai toko.",
     ],
 }
 
@@ -341,6 +362,105 @@ def cek_anggaran_rush_order(cabang: str) -> dict:
     return {"cabang": cabang, "sisa_anggaran_rush_order": sisa}
 
 
+# ---------- 4b. AKSI (tool yang benar-benar mengubah state, bukan cuma menjawab teks) ----------
+# Tool di atas ini (cek_stok_produk dkk) sifatnya READ-ONLY -- agent cuma "melapor". Tool di
+# bawah ini bersifat WRITE: benar-benar mencatat/mengubah data sistem (mengurangi anggaran,
+# menambah log pesanan, dst) sehingga hasilnya terlihat & bisa diverifikasi, bukan cuma diucapkan.
+_rush_order_log: List[dict] = []
+_approval_log: List[dict] = []
+_retur_log: List[dict] = []
+_cuti_log: List[dict] = []
+_promo_log: List[dict] = []
+_counters = {"rush_order": 0, "retur": 0, "cuti": 0, "promo": 0}
+
+ACTION_TOOL_NAMES = {
+    "buat_rush_order", "approve_anggaran_darurat", "proses_retur",
+    "ajukan_cuti", "ajukan_promo",
+}
+
+
+def buat_rush_order(cabang: str, produk: str, qty: int) -> dict:
+    """AKSI: mengajukan & memproses rush order sungguhan (memotong anggaran rush order cabang
+    secara nyata), bukan cuma menyarankan. Ditolak otomatis kalau anggaran tidak cukup."""
+    biaya_per_unit = 150_000
+    biaya = int(qty) * biaya_per_unit
+    sisa = _anggaran_rush_order.get(cabang, 0)
+    if sisa < biaya:
+        return {
+            "status": "DITOLAK",
+            "alasan": f"Anggaran rush order {cabang} tersisa Rp{sisa:,} tidak cukup untuk biaya Rp{biaya:,}.",
+        }
+    _anggaran_rush_order[cabang] = sisa - biaya
+    _counters["rush_order"] += 1
+    catatan = {
+        "order_id": f"RO-{_counters['rush_order']:04d}", "cabang": cabang, "produk": produk,
+        "qty": qty, "biaya": biaya, "sisa_anggaran_setelah": _anggaran_rush_order[cabang],
+        "status": "DIPROSES", "eta": "1-2 hari kerja (SOP Rush Order)",
+    }
+    _rush_order_log.append(catatan)
+    return catatan
+
+
+def approve_anggaran_darurat(cabang: str, jumlah: int) -> dict:
+    """AKSI: menyetujui tambahan anggaran darurat di luar alokasi bulanan biasa (sungguhan
+    menambah saldo anggaran cabang), sesuai SOP Approval Anggaran."""
+    if jumlah <= 0:
+        return {"error": "Jumlah persetujuan harus lebih dari 0."}
+    _anggaran_rush_order[cabang] = _anggaran_rush_order.get(cabang, 0) + int(jumlah)
+    catatan = {
+        "cabang": cabang, "jumlah_disetujui": jumlah,
+        "anggaran_setelah_approval": _anggaran_rush_order[cabang], "status": "DISETUJUI",
+    }
+    _approval_log.append(catatan)
+    return catatan
+
+
+def proses_retur(nomor_order: str, produk: str, alasan: str) -> dict:
+    """AKSI: mencatat & langsung memproses retur pelanggan (bukan cuma menjelaskan syaratnya),
+    sesuai SOP Retur & Komplain."""
+    _counters["retur"] += 1
+    catatan = {
+        "retur_id": f"RT-{_counters['retur']:04d}", "nomor_order": nomor_order,
+        "produk": produk, "alasan": alasan,
+        "status": "DISETUJUI - menunggu pengembalian barang ke gudang",
+    }
+    _retur_log.append(catatan)
+    return catatan
+
+
+def ajukan_cuti(nama_karyawan: str, tanggal_mulai: str, tanggal_selesai: str) -> dict:
+    """AKSI: benar-benar mengajukan cuti karyawan ke sistem HR, sesuai SOP Jam Kerja & Cuti."""
+    _counters["cuti"] += 1
+    catatan = {
+        "cuti_id": f"CT-{_counters['cuti']:04d}", "nama_karyawan": nama_karyawan,
+        "tanggal_mulai": tanggal_mulai, "tanggal_selesai": tanggal_selesai,
+        "status": "DIAJUKAN - menunggu approval atasan langsung",
+    }
+    _cuti_log.append(catatan)
+    return catatan
+
+
+def ajukan_promo(cabang: str, produk: str, diskon_persen: float) -> dict:
+    """AKSI: mengajukan promo diskon dan langsung mengecek stok dulu (SOP Promosi & Stok) --
+    otomatis DITOLAK kalau stok cabang untuk produk itu 0, supaya tidak asal janji ke user."""
+    stok = _stok_cabang.get((cabang, produk))
+    if stok is None:
+        return {"status": "DITOLAK", "alasan": f"Data stok {produk} di {cabang} tidak ditemukan."}
+    if stok == 0:
+        return {
+            "status": "DITOLAK",
+            "alasan": f"Stok {produk} di {cabang} adalah 0. Sesuai SOP Promosi & Stok, promo tidak "
+                      f"boleh diluncurkan untuk produk yang stoknya habis.",
+        }
+    _counters["promo"] += 1
+    catatan = {
+        "promo_id": f"PR-{_counters['promo']:04d}", "cabang": cabang, "produk": produk,
+        "diskon_persen": diskon_persen, "stok_saat_diajukan": stok, "status": "AKTIF",
+    }
+    _promo_log.append(catatan)
+    return catatan
+
+
 def build_tools():
     tool_cek_stok_produk = StructuredTool.from_function(
         func=cek_stok_produk, name="cek_stok_produk",
@@ -354,10 +474,38 @@ def build_tools():
         func=cek_anggaran_rush_order, name="cek_anggaran_rush_order",
         description="Mengecek sisa anggaran rush order (restock mendesak) sebuah cabang.",
     )
+    tool_buat_rush_order = StructuredTool.from_function(
+        func=buat_rush_order, name="buat_rush_order",
+        description="AKSI: benar-benar mengajukan & memproses rush order (memotong anggaran cabang "
+                     "secara nyata). Panggil ini kalau user memang minta stok ditambah/dipesan, "
+                     "bukan cuma menanyakan status stok.",
+    )
+    tool_approve_anggaran_darurat = StructuredTool.from_function(
+        func=approve_anggaran_darurat, name="approve_anggaran_darurat",
+        description="AKSI: menyetujui & menambah anggaran darurat sebuah cabang secara nyata. "
+                     "Panggil kalau user (Finance Manager) memang meminta approval tambahan anggaran.",
+    )
+    tool_proses_retur = StructuredTool.from_function(
+        func=proses_retur, name="proses_retur",
+        description="AKSI: benar-benar memproses & menyetujui retur pelanggan. Panggil kalau user "
+                     "memang meminta returnya diproses, bukan cuma menanyakan syarat retur.",
+    )
+    tool_ajukan_cuti = StructuredTool.from_function(
+        func=ajukan_cuti, name="ajukan_cuti",
+        description="AKSI: benar-benar mengajukan cuti karyawan ke sistem. Panggil kalau user "
+                     "memang minta cutinya diajukan, bukan cuma menanyakan sisa jatah cuti.",
+    )
+    tool_ajukan_promo = StructuredTool.from_function(
+        func=ajukan_promo, name="ajukan_promo",
+        description="AKSI: benar-benar mengajukan promo diskon (otomatis dicek dulu ke stok). "
+                     "Panggil kalau user memang minta promo dijalankan, bukan cuma bertanya rencana.",
+    )
     agent_tools = {
-        "inventory": [tool_cek_stok_produk, tool_cari_stok_cabang_lain],
-        "finance": [tool_cek_anggaran_rush_order],
-        "customer_service": [tool_cek_stok_produk],
+        "inventory": [tool_cek_stok_produk, tool_cari_stok_cabang_lain, tool_buat_rush_order],
+        "finance": [tool_cek_anggaran_rush_order, tool_approve_anggaran_darurat],
+        "customer_service": [tool_cek_stok_produk, tool_proses_retur],
+        "hr": [tool_ajukan_cuti],
+        "marketing": [tool_ajukan_promo],
     }
     mandatory_first_tool = {"inventory": tool_cek_stok_produk}
     return agent_tools, mandatory_first_tool
@@ -379,6 +527,7 @@ class AgentState(TypedDict):
     sources: Annotated[Dict[str, List[str]], merge_dict]
     grounding: Annotated[Dict[str, str], merge_dict]
     interaction_log: Annotated[List[str], lambda a, b: a + b]
+    action_log: Annotated[List[dict], lambda a, b: a + b]
     final_answer: Optional[str]
 
 
@@ -433,8 +582,15 @@ Permintaan: "{state['query']}"
         full_context = (rag_context + "\n" + extra_context).strip()
 
         prompt = f"""Kamu adalah {DIVISI_LABEL[divisi]} pada sistem multi-agent PT Retailindo Nusantara.
-Jawab permintaan berikut HANYA berdasarkan konteks & data tool di bawah ini. Jika informasi tidak cukup,
-katakan demikian secara eksplisit -- JANGAN mengarang angka atau kebijakan yang tidak ada di konteks.
+Prioritaskan konteks & data tool di bawah ini untuk angka, kebijakan, atau SOP internal spesifik --
+JANGAN PERNAH mengarang angka/kebijakan internal yang tidak ada di konteks.
+
+Kalau pertanyaan TIDAK tercakup oleh konteks internal di bawah (mis. pertanyaan umum seputar retail,
+customer service, atau operasional yang di luar SOP spesifik PT Retailindo Nusantara), kamu BOLEH
+menjawab dengan pengetahuan umum/praktik terbaik industri retail supaya tetap membantu -- tapi WAJIB
+tandai bagian itu dengan awalan "(pengetahuan umum, bukan SOP resmi Retailindo)" supaya tidak
+tertukar dengan kebijakan resmi perusahaan. Jangan menolak menjawab hanya karena tidak ada di SOP.
+
 Jawaban singkat, jelas, dan actionable, 2-4 kalimat, dalam Bahasa Indonesia.
 
 Konteks internal (RAG):
@@ -475,6 +631,14 @@ Jawaban {DIVISI_LABEL[divisi]}:"""
             decide_prompt = f"""Kamu adalah {DIVISI_LABEL[divisi]} pada sistem PT Retailindo Nusantara.
 Panggil tool yang sesuai untuk memenuhi permintaan berikut -- boleh lebih dari satu tool sekaligus
 kalau perlu (mis. verifikasi stok lalu cari cabang alternatif).{mandatory_note}
+
+PENTING -- bedakan PERTANYAAN vs PERMINTAAN AKSI:
+- Kalau user hanya BERTANYA/ingin tahu (mis. "berapa stok", "apa syarat retur", "berapa sisa cuti"),
+  cukup panggil tool baca data (bukan tool AKSI).
+- Kalau user secara eksplisit MEMINTA sesuatu DILAKUKAN/DIPROSES/DIAJUKAN/DISETUJUI (mis. "tolong
+  pesan tambahan stok", "proses retur ini", "ajukan cuti saya", "jalankan promonya", "setujui
+  anggarannya"), kamu WAJIB memanggil tool AKSI yang sesuai (deskripsinya diawali "AKSI:") supaya
+  benar-benar terjadi perubahan data, bukan cuma menjawab dengan kata-kata.
 Jika tidak ada tool yang relevan sama sekali, jangan panggil tool apa pun.
 
 Permintaan: "{query}"
@@ -513,8 +677,17 @@ Permintaan: "{query}"
         def node(state: AgentState) -> dict:
             query = state["query"]
             interaction_log: List[str] = []
+            action_log: List[dict] = []
             try:
                 tool_text, calls_made = self._call_agent_tools(divisi, query)
+
+                # Catat setiap AKSI nyata (tool yang benar-benar mengubah data), beda dari
+                # tool baca-saja -- ini yang membedakan "bertindak" vs "cuma menjawab teks".
+                for name, args, result in calls_made:
+                    if name in ACTION_TOOL_NAMES:
+                        action_log.append({
+                            "divisi": divisi, "tool": name, "args": args, "hasil": result,
+                        })
 
                 # Interaksi peer-to-peer: Inventory -> Finance saat stok = 0
                 for name, args, result in calls_made:
@@ -542,6 +715,7 @@ Permintaan: "{query}"
                     "sources": {divisi: sources},
                     "grounding": {divisi: full_context},
                     "interaction_log": interaction_log,
+                    "action_log": action_log,
                 }
             except Exception as e:
                 print(f"[Peringatan] Node '{divisi}' gagal total: {e}")
@@ -554,6 +728,7 @@ Permintaan: "{query}"
                     "sources": {divisi: []},
                     "grounding": {divisi: ""},
                     "interaction_log": [],
+                    "action_log": [],
                 }
 
         return node
@@ -562,8 +737,19 @@ Permintaan: "{query}"
     def _aggregator_node(self, state: AgentState) -> dict:
         combined = "\n".join(f"[{DIVISI_LABEL[d]}] {ans}" for d, ans in state["outputs"].items())
         interaksi = "\n".join(state.get("interaction_log", [])) or "(tidak ada konsultasi antar-agent pada permintaan ini)"
+        aksi_list = state.get("action_log", [])
+        if aksi_list:
+            aksi_text = "\n".join(
+                f"- {DIVISI_LABEL.get(a['divisi'], a['divisi'])} menjalankan `{a['tool']}` -> {a['hasil']}"
+                for a in aksi_list
+            )
+        else:
+            aksi_text = "(tidak ada aksi nyata yang dieksekusi pada permintaan ini, hanya jawaban informasi)"
         prompt = f"""Gabungkan jawaban dari beberapa agent divisi berikut menjadi satu rekomendasi tindakan
 yang koheren dan actionable untuk manajemen PT Retailindo Nusantara. Bahasa Indonesia, maksimal 6 kalimat.
+Kalau ada AKSI NYATA yang sudah dieksekusi (lihat daftar di bawah), WAJIB sebutkan secara eksplisit
+apa yang sudah benar-benar dilakukan (termasuk ID/status-nya) -- jangan cuma menyarankan sesuatu yang
+sebenarnya sudah dijalankan.
 
 Permintaan awal: "{state['query']}"
 
@@ -572,6 +758,9 @@ Jawaban tiap agent:
 
 Catatan interaksi antar-agent (peer-to-peer):
 {interaksi}
+
+Aksi nyata yang sudah dieksekusi sistem (bukan sekadar wacana):
+{aksi_text}
 
 Rekomendasi akhir:"""
         try:
@@ -610,6 +799,7 @@ Rekomendasi akhir:"""
             "sources": {},
             "grounding": {},
             "interaction_log": [],
+            "action_log": [],
             "final_answer": None,
         })
         result["_latency"] = time.time() - start_time
@@ -635,8 +825,14 @@ Rekomendasi akhir:"""
             query, result["outputs"], result["grounding"]
         )
 
+        aksi_list = result.get("action_log", [])
         eval_effectiveness = {
             "task_completed": bool(result.get("final_answer")),
+            "aksi_dieksekusi": len(aksi_list),
+            "aksi_berhasil": sum(
+                1 for a in aksi_list
+                if isinstance(a.get("hasil"), dict) and a["hasil"].get("status") not in ("DITOLAK",)
+            ),
         }
 
         return {

@@ -773,7 +773,7 @@ if run_clicked:
             for aksi in aksi_list:
                 hasil = aksi.get("hasil", {})
                 status = hasil.get("status", "-") if isinstance(hasil, dict) else "-"
-                status_color = "#FB7185" if status == "DITOLAK" else "#34D399"
+                status_color = "#FB7185" if status in ("DITOLAK", "GAGAL") else "#34D399"
                 divisi = aksi.get("divisi", "")
                 color = DIVISI_COLOR.get(divisi, "#8A93AC")
                 detail = ", ".join(f"{k}: {v}" for k, v in hasil.items()) if isinstance(hasil, dict) else str(hasil)

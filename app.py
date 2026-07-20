@@ -743,7 +743,9 @@ if run_clicked:
         unsafe_allow_html=True,
     )
 
-    tabs = st.tabs(["🧩 Jawaban Tiap Agent", "🔗 Log Interaksi Antar-Agent", "✅ Rekomendasi Akhir"])
+    tabs = st.tabs([
+        "🧩 Jawaban Tiap Agent", "🎬 Aksi Dieksekusi", "🔗 Log Interaksi Antar-Agent", "✅ Rekomendasi Akhir",
+    ])
 
     with tabs[0]:
         for divisi, jawaban in result["outputs"].items():
@@ -766,6 +768,36 @@ if run_clicked:
             )
 
     with tabs[1]:
+        aksi_list = result.get("action_log") or []
+        if aksi_list:
+            for aksi in aksi_list:
+                hasil = aksi.get("hasil", {})
+                status = hasil.get("status", "-") if isinstance(hasil, dict) else "-"
+                status_color = "#FB7185" if status == "DITOLAK" else "#34D399"
+                divisi = aksi.get("divisi", "")
+                color = DIVISI_COLOR.get(divisi, "#8A93AC")
+                detail = ", ".join(f"{k}: {v}" for k, v in hasil.items()) if isinstance(hasil, dict) else str(hasil)
+                st.markdown(
+                    f'<div class="agent-card" style="border-left-color:{color};">'
+                    f'<div class="agent-card-head">'
+                    f'<span style="font-size:18px;">{DIVISI_ICON.get(divisi, "🎬")}</span>'
+                    f'<span class="agent-card-title">{DIVISI_LABEL.get(divisi, divisi)} · <code>{esc(aksi.get("tool",""))}</code></span>'
+                    f'<span style="margin-left:auto;color:{status_color};font-weight:600;">{esc(status)}</span>'
+                    f'</div>'
+                    f'<div class="agent-card-body" style="font-family:\'IBM Plex Mono\',monospace;font-size:12.5px;">{esc(detail)}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.markdown(
+                '<div class="agent-card" style="border-left-color:#232C42;color:#8A93AC;">'
+                '(Tidak ada aksi nyata yang dieksekusi pada permintaan ini -- hanya jawaban informasi. '
+                'Coba minta sesuatu secara eksplisit, mis. "tolong ajukan rush order 10 unit ke cabang '
+                'Yogyakarta" atau "proses retur order INV-001".)</div>',
+                unsafe_allow_html=True,
+            )
+
+    with tabs[2]:
         if result.get("interaction_log"):
             items = "".join(
                 f'<div class="timeline-item"><div class="timeline-dot"></div><div>{esc(log)}</div></div>'
@@ -779,7 +811,7 @@ if run_clicked:
                 unsafe_allow_html=True,
             )
 
-    with tabs[2]:
+    with tabs[3]:
         final_text = result.get("final_answer") or "(tidak ada rekomendasi akhir)"
         st.markdown(f'<div class="final-card">{esc(final_text)}</div>', unsafe_allow_html=True)
 
@@ -810,6 +842,11 @@ if run_clicked:
                 '<div class="metric-card">'
                 '<div class="metric-label">Task Completed</div>'
                 f'<div class="metric-value {"good" if completed else "bad"}">{"Ya" if completed else "Tidak"}</div>'
+                '</div>'
+                '<div class="metric-card">'
+                '<div class="metric-label">Aksi Dieksekusi</div>'
+                f'<div class="metric-value {"good" if eff.get("aksi_dieksekusi", 0) > 0 else ""}">'
+                f'{eff.get("aksi_berhasil", 0)}/{eff.get("aksi_dieksekusi", 0)}</div>'
                 '</div>'
                 '<div class="metric-card">'
                 '<div class="metric-label">Latency</div>'

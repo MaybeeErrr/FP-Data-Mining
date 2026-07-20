@@ -15,6 +15,7 @@ GROQ_API_KEY diambil dari (urutan prioritas):
 """
 
 import html
+import re
 import os
 import time
 
@@ -60,8 +61,13 @@ DIVISI_ICON = {
 
 
 def esc(text) -> str:
-    """Escape teks (termasuk hasil LLM) sebelum dirender sebagai HTML mentah."""
-    return html.escape(str(text)).replace("\n", "<br>")
+    """Escape teks (termasuk hasil LLM) sebelum dirender sebagai HTML mentah.
+    Markdown **bold** dari LLM dikonversi jadi <strong> supaya tidak muncul
+    tanda bintang mentah di tampilan (karena teks ini dirender lewat
+    unsafe_allow_html, bukan parser markdown bawaan Streamlit)."""
+    escaped = html.escape(str(text))
+    escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+    return escaped.replace("\n", "<br>")
 
 
 # ============================================================
